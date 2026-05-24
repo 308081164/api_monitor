@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Package docs bundle
+        run: zip -r docs-bundle.zip docs LICENSE README.md
+
+      - name: Resolve version
+        id: meta
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: v${{ steps.meta.outputs.version }} (build ${{ github.run_number }})
+          body: |
+            ## API Monitor v${{ steps.meta.outputs.version }}
+
+            - **Commit**: `${{ github.sha }}`
+            - **Branch**: `${{ github.ref_name }}`
+            - **Workflow run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### 下载说明
+
+            | 文件 | 说明 |
+            |------|------|
+            | `api_monitor-*-py3-none-any.whl` | Python wheel，可用 `pip install` 安装 |
+            | `api_monitor-*.tar.gz` | 源码分发包 |
+            | `docs-bundle.zip` | 项目文档压缩包 |
+
+            > 本项目处于早期阶段，Release 产物主要用于 CI 验证与后续分发预留。
+          files: |
+            dist/*
+            docs-bundle.zip
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

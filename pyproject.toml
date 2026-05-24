@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-monitor"
+version = "0.1.0"
+description = "Passive API relay monitoring for LLM model authenticity"
+readme = "README.md"
+license = { text = "MPL-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "308081164" }]
+keywords = ["llm", "api", "monitor", "proxy", "sentinel"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/308081164/api_monitor"
+Repository = "https://github.com/308081164/api_monitor"
+Issues = "https://github.com/308081164/api_monitor/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
