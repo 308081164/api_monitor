@@ -1,0 +1,17 @@
+services:
+  api-monitor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SENTINEL_UPSTREAM_URL: ${SENTINEL_UPSTREAM_URL:-https://api.openai.com}
+      SENTINEL_DB_PATH: /data/responses.db
+      SENTINEL_ENABLE_DASHBOARD: "true"
+    volumes:
+      - api-monitor-data:/data
+    restart: unless-stopped
+
+volumes:
+  api-monitor-data:

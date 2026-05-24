@@ -49,6 +49,9 @@ class ResponseLogger:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_responses_ts ON responses(timestamp)"
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_responses_model ON responses(model_requested)"
+            )
             conn.commit()
 
     def log(
@@ -90,6 +93,18 @@ class ResponseLogger:
             row = conn.execute("SELECT COUNT(*) AS c FROM responses").fetchone()
             return int(row["c"])
 
+    def fetch_recent(self, *, limit: int = 50) -> list[ResponseRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, timestamp, method, path, upstream_url, model_requested,
+                       response_text, metadata, timing
+                FROM responses ORDER BY id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._row_to_record(r) for r in reversed(rows)]
+
     def fetch_since(
         self, *, limit: int | None = None, min_id: int = 0
     ) -> list[ResponseRecord]:
@@ -128,5 +143,7 @@ class ResponseLogger:
             timing=TimingInfo(
                 ttft_ms=timing_raw.get("ttft_ms"),
                 total_ms=timing_raw.get("total_ms"),
+                itts_ms=list(timing_raw.get("itts_ms") or []),
+                token_chunks=timing_raw.get("token_chunks"),
             ),
         )

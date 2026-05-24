@@ -3,6 +3,7 @@ import json
 from api_monitor.proxy.extract import (
     extract_metadata,
     extract_response_text,
+    merge_streaming_chunks,
     parse_request_model,
 )
 
@@ -37,3 +38,34 @@ def test_extract_anthropic():
         }
     ).encode()
     assert extract_response_text(body) == "Hello from Claude"
+
+
+def test_extract_gemini():
+    body = json.dumps(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": "Hello from Gemini"}],
+                        "role": "model",
+                    },
+                    "finishReason": "STOP",
+                }
+            ],
+            "modelVersion": "gemini-1.5-pro",
+        }
+    ).encode()
+    assert extract_response_text(body) == "Hello from Gemini"
+    meta = extract_metadata(body)
+    assert meta["modelVersion"] == "gemini-1.5-pro"
+
+
+def test_merge_streaming_chunks():
+    chunk = (
+        b'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+        b"data: [DONE]\n\n"
+    )
+    merged, itts = merge_streaming_chunks([chunk])
+    assert merged
+    assert extract_response_text(merged) == "Hi"
+    assert isinstance(itts, list)

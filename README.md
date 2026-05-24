@@ -2,7 +2,7 @@
 
 API 中转站被动式模型真实性持续监控系统。
 
-基于**方案 A：透明代理**，在用户软件与中转站 API 之间插入本地代理，**使用时仅记录**响应到 SQLite，**闲时离线分析**（MiniLM）检测模型家族是否漂移。
+基于**方案 A：透明代理**，在用户软件与中转站 API 之间插入本地代理，**使用时仅记录**响应到 SQLite，**闲时离线分析**（MiniLM + 多信号融合）检测模型家族是否漂移。
 
 ## 快速开始
 
@@ -12,18 +12,14 @@ API 中转站被动式模型真实性持续监控系统。
 pip install -e ".[analyze,dev]"
 ```
 
-仅代理（不安装分析模型）：
-
-```bash
-pip install -e .
-```
-
 ### 1. 配置上游并启动代理
 
 ```bash
 export SENTINEL_UPSTREAM_URL="https://你的中转站.example.com"
 api-monitor serve --port 8080
 ```
+
+浏览器打开仪表板：**http://127.0.0.1:8080/dashboard**
 
 ### 2. 将客户端指向本地代理
 
@@ -32,20 +28,25 @@ export OPENAI_BASE_URL="http://127.0.0.1:8080/v1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8080/v1"
 ```
 
-或在代码中：
-
-```python
-from openai import OpenAI
-
-client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="your-key")
-```
-
-### 3. 正常使用 API 后，睡前离线分析
+### 3. 离线分析
 
 ```bash
-api-monitor status
 api-monitor analyze -o report.md
+api-monitor analyze --format html -o report.html
 ```
+
+或在仪表板点击「运行离线分析」。
+
+## Phase 2 能力
+
+| 能力 | 说明 |
+|------|------|
+| **ITT / TTFT 时序漂移** | 流式 SSE 记录 token 间隔，KS 检验对比基线 |
+| **基线自动建立** | 每个 `model_requested` 前 N 条样本建立动态阈值 |
+| **多信号融合** | 文本 + 元数据 + 时序加权决策 |
+| **Web 仪表板** | `/dashboard` 实时查看记录与告警 |
+| **Gemini 协议** | 支持 `candidates[].content.parts` 解析 |
+| **Docker / systemd** | 见 `deploy/` 目录 |
 
 ## 环境变量
 
@@ -54,30 +55,16 @@ api-monitor analyze -o report.md
 | `SENTINEL_UPSTREAM_URL` | 中转站 API 根地址 | （必填） |
 | `SENTINEL_HOST` / `SENTINEL_PORT` | 代理监听 | `127.0.0.1:8080` |
 | `SENTINEL_DB_PATH` | SQLite 路径 | `responses.db` |
-| `SENTINEL_MIN_TEXT_LENGTH` | 分析最小文本长度 | `32` |
-| `SENTINEL_DRIFT_THRESHOLD` | 漂移告警阈值 | `0.15` |
+| `SENTINEL_BASELINE_MIN_SAMPLES` | 基线最少样本数 | `20` |
+| `SENTINEL_TIMING_PVALUE` | 时序 KS 检验 p 阈值 | `0.05` |
+| `SENTINEL_ENABLE_DASHBOARD` | 启用 Web 仪表板 | `true` |
 
-也可在单次请求中通过请求头 `X-Sentinel-Upstream` 指定上游。
+## Docker
 
-## 架构（记录-分析分离）
-
+```bash
+cd deploy
+SENTINEL_UPSTREAM_URL=https://your-relay.example.com docker compose up -d
 ```
-用户应用 → SentinelProxy (localhost) → 中转站 API
-                ↓ 仅写入 SQLite
-         闲时: api-monitor analyze → Markdown 报告
-```
-
-## CLI 命令
-
-| 命令 | 说明 |
-|------|------|
-| `api-monitor serve` | 启动透明代理 |
-| `api-monitor status` | 查看已记录条数 |
-| `api-monitor analyze` | 离线 MiniLM 分析并生成报告 |
-
-## 下载
-
-预构建产物见 [Releases](https://github.com/308081164/api_monitor/releases)。
 
 ## 文档
 
@@ -87,4 +74,4 @@ api-monitor analyze -o report.md
 
 ## 许可证
 
-本项目采用 [Mozilla Public License 2.0](LICENSE)（MPL-2.0）开源。
+[MPL-2.0](LICENSE)

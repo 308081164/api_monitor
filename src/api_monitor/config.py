@@ -24,6 +24,9 @@ class Settings:
     db_path: Path = Path("responses.db")
     min_text_length: int = 32
     drift_threshold: float = 0.15
+    baseline_min_samples: int = 20
+    timing_pvalue_threshold: float = 0.05
+    enable_dashboard: bool = True
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -32,6 +35,9 @@ class Settings:
         port_raw = _env("SENTINEL_PORT", "8080")
         min_len_raw = _env("SENTINEL_MIN_TEXT_LENGTH", "32")
         drift_raw = _env("SENTINEL_DRIFT_THRESHOLD", "0.15")
+        baseline_raw = _env("SENTINEL_BASELINE_MIN_SAMPLES", "20")
+        timing_p_raw = _env("SENTINEL_TIMING_PVALUE", "0.05")
+        dash_raw = _env("SENTINEL_ENABLE_DASHBOARD", "true")
         return cls(
             host=_env("SENTINEL_HOST", "127.0.0.1") or "127.0.0.1",
             port=int(port_raw) if port_raw else 8080,
@@ -39,6 +45,9 @@ class Settings:
             db_path=Path(db or "responses.db"),
             min_text_length=int(min_len_raw) if min_len_raw else 32,
             drift_threshold=float(drift_raw) if drift_raw else 0.15,
+            baseline_min_samples=int(baseline_raw) if baseline_raw else 20,
+            timing_pvalue_threshold=float(timing_p_raw) if timing_p_raw else 0.05,
+            enable_dashboard=(dash_raw or "true").lower() in {"1", "true", "yes", "on"},
         )
 
 
