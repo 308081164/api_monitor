@@ -46,7 +46,6 @@ def ks_statistic(sample_a: Sequence[float], sample_b: Sequence[float]) -> tuple[
         d = max(d, abs(ia / na - ib / nb))
 
     n_eff = (na * nb) / (na + nb)
-    # Kolmogorov asymptotic p-value
     if n_eff <= 0:
         return d, 1.0
     lam = (math.sqrt(n_eff) + 0.12 + 0.11 / math.sqrt(n_eff)) * d
@@ -75,7 +74,6 @@ def timing_drift_pvalue(
 
     baseline_samples: list[float] = []
     if baseline.itt_mean_ms is not None and baseline.itt_std_ms is not None:
-        # Reconstruct pseudo-samples from stored mean/std for KS
         baseline_samples = [
             baseline.itt_mean_ms,
             baseline.itt_mean_ms + baseline.itt_std_ms,
@@ -91,7 +89,6 @@ def timing_drift_pvalue(
     if len(samples) < 1 or len(baseline_samples) < 2:
         return None
 
-  # Pad single-sample current with total latency spread if needed
     if len(samples) == 1 and timing.total_ms:
         samples = [samples[0], timing.total_ms * 0.5, timing.total_ms * 0.8]
 

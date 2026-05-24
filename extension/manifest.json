@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "API Monitor Capture",
+  "version": "0.4.0",
+  "description": "方案 B：在浏览器中捕获 LLM API 响应并上报至本地 API Monitor",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://*.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://*.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "http://127.0.0.1:8080/*",
+    "http://localhost:8080/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "API Monitor",
+    "default_popup": "popup.html"
+  }
+}

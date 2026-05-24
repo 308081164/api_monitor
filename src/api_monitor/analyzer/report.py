@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime, timezone
 
 from api_monitor.models import AnalysisReport, AnalysisRow
@@ -21,6 +22,8 @@ def render_markdown_report(report: AnalysisReport) -> str:
         f"- 已分析（满足最小文本长度）: **{report.analyzed_records}**",
         f"- 告警条数: **{len(report.alerts)}**",
         f"- 基线模型数: **{len(report.baselines)}**",
+        f"- 基线 EMA 更新: **{report.baselines_updated}**",
+        f"- 平滑抑制告警: **{report.alerts_suppressed_by_smoothing}**",
         "",
     ]
 
@@ -131,3 +134,38 @@ def _render_alert_html(alert: AnalysisRow) -> str:
         f" · 融合分 {alert.fusion_score}</p>"
         f"<ul>{ev}</ul></div>"
     )
+
+
+def render_json_report(report: AnalysisReport) -> str:
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total_records": report.total_records,
+        "analyzed_records": report.analyzed_records,
+        "alert_count": len(report.alerts),
+        "baselines_updated": report.baselines_updated,
+        "alerts_suppressed_by_smoothing": report.alerts_suppressed_by_smoothing,
+        "summary_by_family": report.summary_by_family,
+        "baselines": {
+            k: {
+                "sample_count": v.sample_count,
+                "dynamic_threshold": v.dynamic_threshold,
+                "avg_logprob": v.avg_logprob,
+            }
+            for k, v in report.baselines.items()
+        },
+        "alerts": [
+            {
+                "record_id": a.record_id,
+                "timestamp": a.timestamp,
+                "model_requested": a.model_requested,
+                "expected_family": a.expected_family,
+                "predicted_family": a.predicted_family,
+                "risk_level": a.risk_level,
+                "raw_risk_level": a.raw_risk_level,
+                "fusion_score": a.fusion_score,
+                "evidence": a.evidence,
+            }
+            for a in report.alerts
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)

@@ -36,14 +36,14 @@ def build_baselines(
         else:
             drifts = [0.0] * len(bootstrap)
 
-        ttfts = [
-            r.timing.ttft_ms
-            for r in bootstrap
-            if r.timing.ttft_ms is not None
-        ]
+        ttfts = [r.timing.ttft_ms for r in bootstrap if r.timing.ttft_ms is not None]
         all_itts: list[float] = []
         for r in bootstrap:
             all_itts.extend(r.timing.itts_ms)
+
+        logprobs = [r.logprobs_stats for r in bootstrap if r.logprobs_stats]
+        avg_lps = [lp.avg_logprob for lp in logprobs]
+        entropies = [lp.mean_entropy for lp in logprobs]
 
         fps: list[str] = []
         for r in bootstrap:
@@ -53,7 +53,7 @@ def build_baselines(
 
         drift_mean = _mean(drifts)
         drift_std = max(_std(drifts, drift_mean), 0.02)
-        profile = BaselineProfile(
+        partial = BaselineProfile(
             model_key=model_key,
             sample_count=len(bootstrap),
             text_drift_mean=drift_mean,
@@ -62,18 +62,28 @@ def build_baselines(
             ttft_std_ms=_std(ttfts) if ttfts else None,
             itt_mean_ms=_mean(all_itts) if all_itts else None,
             itt_std_ms=_std(all_itts) if all_itts else None,
+            avg_logprob=_mean(avg_lps) if avg_lps else None,
+            logprob_entropy_mean=_mean(entropies) if entropies else None,
+            logprob_std=_std(avg_lps) if len(avg_lps) > 1 else None,
             metadata_fingerprints=list(dict.fromkeys(fps)),
-            dynamic_threshold=dynamic_text_threshold(
-                BaselineProfile(
-                    model_key=model_key,
-                    sample_count=len(bootstrap),
-                    text_drift_mean=drift_mean,
-                    text_drift_std=drift_std,
-                ),
-                floor=default_threshold,
-            ),
+            dynamic_threshold=0.15,
         )
-        # Skip unknown-only baselines with no family hint
+        profile = BaselineProfile(
+            model_key=partial.model_key,
+            sample_count=partial.sample_count,
+            text_drift_mean=partial.text_drift_mean,
+            text_drift_std=partial.text_drift_std,
+            ttft_mean_ms=partial.ttft_mean_ms,
+            ttft_std_ms=partial.ttft_std_ms,
+            itt_mean_ms=partial.itt_mean_ms,
+            itt_std_ms=partial.itt_std_ms,
+            avg_logprob=partial.avg_logprob,
+            logprob_entropy_mean=partial.logprob_entropy_mean,
+            logprob_std=partial.logprob_std,
+            metadata_fingerprints=partial.metadata_fingerprints,
+            dynamic_threshold=dynamic_text_threshold(partial, floor=default_threshold),
+        )
+
         if model_key == "__unknown__" and not fps:
             continue
         if infer_expected_family(model_key) == "unknown" and not fps and not ttfts:

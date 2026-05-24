@@ -12,26 +12,32 @@
 
 ## Phase 2（已完成）
 
+| 任务 | 状态 |
+|------|------|
+| ITT / TTFT 时序漂移 | ✅ |
+| 基线自动建立与动态阈值 | ✅ |
+| 多信号融合 | ✅ |
+| Web 仪表板 | ✅ |
+| Gemini 协议 | ✅ |
+| Docker / systemd | ✅ |
+
+## Phase 3（已完成）
+
 | 任务 | 模块 | 状态 |
 |------|------|------|
-| ITT / TTFT 时序采集与 KS 漂移检测 | `analyzer/drift.py`, `proxy/extract.py` | ✅ |
-| 基线自动建立与动态阈值 | `analyzer/baseline_builder.py`, `storage/baseline.py` | ✅ |
-| 多信号融合决策 | `analyzer/fusion.py` | ✅ |
-| Web 仪表板 | `dashboard/` | ✅ |
-| HTML 报告导出 | `analyzer/report.py`, `analyze --format html` | ✅ |
-| Gemini 多协议解析 | `proxy/extract.py` | ✅ |
-| Docker / systemd 部署 | `deploy/` | ✅ |
+| 基线 EMA 自动更新 | `analyzer/baseline_updater.py` | ✅ |
+| 告警历史平滑（降误报） | `analyzer/smoothing.py` | ✅ |
+| Logprobs 采集与漂移 | `analyzer/logprobs.py` | ✅ |
+| 浏览器扩展（方案 B） | `extension/` | ✅ |
+| Ingest API | `POST /api/ingest` | ✅ |
+| JSON 报告导出 | `analyze --format json` | ✅ |
+| 生产运维文档 | `docs/OPERATIONS.md` | ✅ |
+| `baseline-refresh` CLI | `api-monitor baseline-refresh` | ✅ |
 
-## Phase 3 待办
+## 验收标准（M3）
 
-- [ ] 基线自动更新与误报优化（历史平滑）
-- [ ] Logprobs 采集（可选信号）
-- [ ] 浏览器插件（方案 B）
-- [ ] 生产级 7×24 运维文档
-
-## 验收标准（M2）
-
-- [x] 支持 OpenAI / Claude / Gemini 响应解析
-- [x] 时序 + 文本 + 元数据多信号融合告警
-- [x] Web 仪表板可查看记录并触发分析
-- [x] Docker Compose 一键部署
+- [x] 低风险样本自动 EMA 更新基线
+- [x] 孤立尖峰告警经平滑窗口抑制
+- [x] 支持 logprobs 可选信号
+- [x] 浏览器扩展 + 本地 ingest
+- [x] 7×24 运维手册（备份/升级/排障）
