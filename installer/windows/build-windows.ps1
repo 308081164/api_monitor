@@ -23,6 +23,14 @@ pyinstaller --noconfirm --clean "installer\windows\apimonitor.spec"
 
 New-Item -ItemType Directory -Force -Path "dist\installer" | Out-Null
 
+$langFile = Join-Path $PSScriptRoot "languages\ChineseSimplified.isl"
+if (-not (Test-Path $langFile)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $langFile) | Out-Null
+    $langUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+    Write-Host "Downloading ChineseSimplified.isl ..."
+    Invoke-WebRequest -Uri $langUrl -OutFile $langFile -UseBasicParsing
+}
+
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
     $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"

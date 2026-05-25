@@ -15,6 +15,10 @@
 | 退出释放进程 | `launcher.py` 关闭窗口时终止子进程 + `stop-apimonitor.ps1` |
 | 卸载清理 | `[UninstallRun]` 调用 `stop-apimonitor.ps1` |
 
+## 安装程序语言
+
+简体中文翻译文件已内嵌在 `languages/ChineseSimplified.isl`（来自 [Inno Setup 社区翻译](https://github.com/jrsoftware/issrc/tree/main/Files/Languages/Unofficial)）。CI 通过 `choco install innosetup` 安装的 Inno Setup **不包含**该文件，因此不能依赖 `compiler:Languages\ChineseSimplified.isl`。
+
 ## 本地构建（需 Windows）
 
 ```powershell
