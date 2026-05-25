@@ -19,18 +19,77 @@ def _data_dir() -> Path:
     return path
 
 
+def _ensure_stdio() -> None:
+    """PyInstaller windowed (console=False) leaves stdout/stderr as None."""
+    data = _data_dir()
+    log_path = data / "api-monitor.log"
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = log_file
+    if sys.stderr is None:
+        sys.stderr = log_file
+
+
+def _uvicorn_log_config() -> dict:
+    """Logging config that does not call sys.stdout.isatty() (broken when None)."""
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "()": "uvicorn.logging.DefaultFormatter",
+                "fmt": "%(levelprefix)s %(message)s",
+                "use_colors": False,
+            },
+            "access": {
+                "()": "uvicorn.logging.AccessFormatter",
+                "fmt": '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+                "use_colors": False,
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stderr",
+            },
+            "access": {
+                "formatter": "access",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO"},
+            "uvicorn.error": {"level": "INFO"},
+            "uvicorn.access": {
+                "handlers": ["access"],
+                "level": "INFO",
+                "propagate": False,
+            },
+        },
+    }
+
+
 def _run_server() -> None:
     import uvicorn
 
     from api_monitor.config import Settings
     from api_monitor.proxy.app import create_app
 
+    _ensure_stdio()
     data = _data_dir()
     os.environ.setdefault("SENTINEL_DB_PATH", str(data / "responses.db"))
     os.environ.setdefault("SENTINEL_DATA_DIR", str(data))
     settings = Settings.from_env()
     app = create_app(settings)
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level="info",
+        log_config=_uvicorn_log_config(),
+    )
 
 
 def _stop_processes() -> None:
@@ -45,6 +104,7 @@ def _stop_processes() -> None:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    _ensure_stdio()
 
     try:
         import tkinter as tk
