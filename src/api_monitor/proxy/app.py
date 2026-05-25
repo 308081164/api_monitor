@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_monitor.config import Settings
@@ -36,8 +37,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="API Monitor SentinelProxy",
         description="Plan A transparent proxy — record only, analyze offline",
-        version="0.3.0",
+        version="0.4.0",
     )
+
+    if settings.enable_cors:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     if settings.enable_dashboard:
         register_dashboard_routes(app, settings)
@@ -49,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "records": logger.count(),
             "upstream_configured": bool(settings.upstream_base_url),
             "dashboard": settings.enable_dashboard,
+            "version": "0.4.0",
         }
 
     @app.api_route(

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from api_monitor.analyzer.logprobs import extract_logprobs_stats
+
 
 def parse_request_model(body: bytes) -> str | None:
     if not body:
@@ -130,6 +132,10 @@ def extract_metadata(body: bytes) -> dict[str, Any]:
         if isinstance(first, dict):
             if first.get("finishReason"):
                 meta["finishReason"] = first["finishReason"]
+
+    lp_stats = extract_logprobs_stats(body)
+    if lp_stats:
+        meta["logprobs_stats"] = lp_stats
 
     return meta
 

@@ -7,6 +7,13 @@ from typing import Any
 
 
 @dataclass
+class LogprobsStats:
+    avg_logprob: float
+    mean_entropy: float
+    token_count: int
+
+
+@dataclass
 class TimingInfo:
     ttft_ms: float | None = None
     total_ms: float | None = None
@@ -26,6 +33,20 @@ class ResponseRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     timing: TimingInfo = field(default_factory=TimingInfo)
 
+    @property
+    def logprobs_stats(self) -> LogprobsStats | None:
+        raw = self.metadata.get("logprobs_stats")
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return LogprobsStats(
+                avg_logprob=float(raw["avg_logprob"]),
+                mean_entropy=float(raw["mean_entropy"]),
+                token_count=int(raw["token_count"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
 
 @dataclass
 class FamilyScore:
@@ -44,6 +65,9 @@ class BaselineProfile:
     ttft_std_ms: float | None = None
     itt_mean_ms: float | None = None
     itt_std_ms: float | None = None
+    avg_logprob: float | None = None
+    logprob_entropy_mean: float | None = None
+    logprob_std: float | None = None
     metadata_fingerprints: list[str] = field(default_factory=list)
     dynamic_threshold: float = 0.15
 
@@ -58,8 +82,10 @@ class AnalysisRow:
     confidence: float
     drift_score: float
     risk_level: str
+    raw_risk_level: str | None = None
     evidence: list[str] = field(default_factory=list)
     timing_pvalue: float | None = None
+    logprobs_pvalue: float | None = None
     dynamic_threshold: float | None = None
     fusion_score: float | None = None
 
@@ -71,3 +97,5 @@ class AnalysisReport:
     alerts: list[AnalysisRow] = field(default_factory=list)
     summary_by_family: dict[str, int] = field(default_factory=dict)
     baselines: dict[str, BaselineProfile] = field(default_factory=dict)
+    baselines_updated: int = 0
+    alerts_suppressed_by_smoothing: int = 0

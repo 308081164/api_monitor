@@ -8,34 +8,16 @@ from pathlib import Path
 import click
 import uvicorn
 
-from api_monitor.analyzer.offline import OfflineAnalyzer
-from api_monitor.analyzer.report import render_html_report, render_markdown_report
+from api_monitor.analyzer.report import (
+    render_html_report,
+    render_json_report,
+    render_markdown_report,
+)
+from api_monitor.analyzer.service import analyzer_from_settings
 from api_monitor.config import Settings
 from api_monitor.proxy.app import create_app
+from api_monitor.storage.baseline import BaselineStore
 from api_monitor.storage.logger import ResponseLogger
-
-
-def _apply_settings(
-    settings: Settings,
-    *,
-    upstream: str | None = None,
-    db_path: str | None = None,
-) -> Settings:
-    if upstream or db_path:
-        return Settings(
-            host=settings.host,
-            port=settings.port,
-            upstream_base_url=(upstream or settings.upstream_base_url).rstrip("/")
-            if upstream
-            else settings.upstream_base_url,
-            db_path=Path(db_path) if db_path else settings.db_path,
-            min_text_length=settings.min_text_length,
-            drift_threshold=settings.drift_threshold,
-            baseline_min_samples=settings.baseline_min_samples,
-            timing_pvalue_threshold=settings.timing_pvalue_threshold,
-            enable_dashboard=settings.enable_dashboard,
-        )
-    return settings
 
 
 @click.group()
@@ -62,19 +44,13 @@ def serve(
     no_dashboard: bool,
 ) -> None:
     """启动透明代理 (方案 A)。"""
-    settings = _apply_settings(Settings.from_env(), upstream=upstream, db_path=db_path)
+    settings = Settings.from_env()
+    if upstream:
+        settings = settings.with_overrides(upstream_base_url=upstream.rstrip("/"))
+    if db_path:
+        settings = settings.with_overrides(db_path=Path(db_path))
     if no_dashboard:
-        settings = Settings(
-            host=settings.host,
-            port=settings.port,
-            upstream_base_url=settings.upstream_base_url,
-            db_path=settings.db_path,
-            min_text_length=settings.min_text_length,
-            drift_threshold=settings.drift_threshold,
-            baseline_min_samples=settings.baseline_min_samples,
-            timing_pvalue_threshold=settings.timing_pvalue_threshold,
-            enable_dashboard=False,
-        )
+        settings = settings.with_overrides(enable_dashboard=False)
 
     bind_host = host or settings.host
     bind_port = port or settings.port
@@ -86,12 +62,17 @@ def serve(
             err=True,
         )
 
-    dash = f"http://{bind_host}:{bind_port}/dashboard" if settings.enable_dashboard else "(已禁用)"
+    dash = (
+        f"http://{bind_host}:{bind_port}/dashboard"
+        if settings.enable_dashboard
+        else "(已禁用)"
+    )
     click.echo(
         f"SentinelProxy 监听 http://{bind_host}:{bind_port}\n"
         f"上游: {settings.upstream_base_url or '(未配置)'}\n"
         f"数据库: {settings.db_path}\n"
         f"仪表板: {dash}\n"
+        f"扩展上报: http://{bind_host}:{bind_port}/api/ingest\n"
         "请将客户端 OPENAI_BASE_URL 指向 "
         f"http://{bind_host}:{bind_port}/v1"
     )
@@ -103,12 +84,39 @@ def serve(
 @main.command("status")
 @click.option("--db", "db_path", default=None, type=click.Path(), help="SQLite 数据库路径")
 def status(db_path: str | None) -> None:
-    """查看已记录响应数量。"""
+    """查看已记录响应数量与基线概况。"""
     settings = Settings.from_env()
     path = Path(db_path) if db_path else settings.db_path
     count = ResponseLogger(path).count()
+    baselines = BaselineStore(path).list_all()
     click.echo(f"数据库: {path}")
     click.echo(f"已记录响应: {count}")
+    click.echo(f"基线模型数: {len(baselines)}")
+
+
+@main.command("baseline-refresh")
+@click.option("--db", "db_path", default=None, type=click.Path(), help="SQLite 数据库路径")
+def baseline_refresh(db_path: str | None) -> None:
+    """从全部历史记录重建基线（不生成告警报告）。"""
+    settings = Settings.from_env()
+    path = Path(db_path) if db_path else settings.db_path
+    records = ResponseLogger(path).fetch_all()
+    if not records:
+        click.echo("没有记录可用于重建基线。")
+        sys.exit(1)
+
+    analyzer = analyzer_from_settings(settings, db_path=str(path))
+    try:
+        profiles = analyzer.refresh_baselines(records)
+    except RuntimeError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(2)
+
+    click.echo(f"已更新 {len(profiles)} 个模型基线。")
+    for key, p in sorted(profiles.items()):
+        click.echo(
+            f"  {key}: {p.sample_count} 样本, 阈值 {p.dynamic_threshold:.3f}"
+        )
 
 
 @main.command("analyze")
@@ -125,7 +133,7 @@ def status(db_path: str | None) -> None:
 @click.option(
     "--format",
     "report_format",
-    type=click.Choice(["markdown", "html", "md"], case_sensitive=False),
+    type=click.Choice(["markdown", "html", "json", "md"], case_sensitive=False),
     default="markdown",
     help="报告格式",
 )
@@ -150,13 +158,9 @@ def analyze(
         click.echo("没有可分析的记录。请先通过代理产生 API 流量。")
         sys.exit(1)
 
-    analyzer = OfflineAnalyzer(
-        min_text_length=min_length or settings.min_text_length,
-        drift_threshold=settings.drift_threshold,
-        baseline_min_samples=settings.baseline_min_samples,
-        timing_pvalue_threshold=settings.timing_pvalue_threshold,
-        db_path=str(path),
-    )
+    analyzer = analyzer_from_settings(settings, db_path=str(path))
+    if min_length:
+        analyzer = OfflineAnalyzerOverride(analyzer, min_length)
     try:
         report = analyzer.analyze_records(records)
     except RuntimeError as exc:
@@ -166,9 +170,12 @@ def analyze(
     fmt = report_format.lower()
     if fmt == "md":
         fmt = "markdown"
-    content = (
-        render_html_report(report) if fmt == "html" else render_markdown_report(report)
-    )
+    if fmt == "json":
+        content = render_json_report(report)
+    elif fmt == "html":
+        content = render_html_report(report)
+    else:
+        content = render_markdown_report(report)
 
     if output_path:
         out = Path(output_path)
@@ -179,8 +186,24 @@ def analyze(
 
     if report.alerts:
         high = sum(1 for a in report.alerts if a.risk_level == "high")
-        click.echo(f"\n共 {len(report.alerts)} 条告警 (高风险 {high} 条)", err=True)
+        click.echo(
+            f"\n共 {len(report.alerts)} 条告警 (高风险 {high} 条), "
+            f"平滑抑制 {report.alerts_suppressed_by_smoothing} 条, "
+            f"基线更新 {report.baselines_updated} 次",
+            err=True,
+        )
         sys.exit(0 if high == 0 else 1)
+
+
+class OfflineAnalyzerOverride:
+    """Thin wrapper to override min_text_length for one analyze run."""
+
+    def __init__(self, inner, min_length: int):
+        self._inner = inner
+        self._inner.min_text_length = min_length
+
+    def analyze_records(self, records):
+        return self._inner.analyze_records(records)
 
 
 if __name__ == "__main__":

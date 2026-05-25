@@ -1,10 +1,11 @@
-"""Baseline profiles per requested model — auto-built from early samples."""
+"""Baseline profiles per requested model — auto-built and EMA-updated."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -43,10 +44,22 @@ class BaselineStore:
                     itt_std_ms REAL,
                     metadata_fingerprints TEXT NOT NULL DEFAULT '[]',
                     dynamic_threshold REAL NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    avg_logprob REAL,
+                    logprob_entropy_mean REAL,
+                    logprob_std REAL
                 )
                 """
             )
+            for col, typedef in (
+                ("avg_logprob", "REAL"),
+                ("logprob_entropy_mean", "REAL"),
+                ("logprob_std", "REAL"),
+            ):
+                try:
+                    conn.execute(f"ALTER TABLE baselines ADD COLUMN {col} {typedef}")
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
 
     def get(self, model_key: str) -> BaselineProfile | None:
@@ -64,8 +77,6 @@ class BaselineStore:
         return {str(r["model_key"]): self._row_to_profile(r) for r in rows}
 
     def upsert(self, profile: BaselineProfile) -> None:
-        from datetime import datetime, timezone
-
         ts = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
@@ -73,8 +84,9 @@ class BaselineStore:
                 INSERT INTO baselines (
                     model_key, sample_count, text_drift_mean, text_drift_std,
                     ttft_mean_ms, ttft_std_ms, itt_mean_ms, itt_std_ms,
-                    metadata_fingerprints, dynamic_threshold, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    metadata_fingerprints, dynamic_threshold, updated_at,
+                    avg_logprob, logprob_entropy_mean, logprob_std
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(model_key) DO UPDATE SET
                     sample_count=excluded.sample_count,
                     text_drift_mean=excluded.text_drift_mean,
@@ -85,7 +97,10 @@ class BaselineStore:
                     itt_std_ms=excluded.itt_std_ms,
                     metadata_fingerprints=excluded.metadata_fingerprints,
                     dynamic_threshold=excluded.dynamic_threshold,
-                    updated_at=excluded.updated_at
+                    updated_at=excluded.updated_at,
+                    avg_logprob=excluded.avg_logprob,
+                    logprob_entropy_mean=excluded.logprob_entropy_mean,
+                    logprob_std=excluded.logprob_std
                 """,
                 (
                     profile.model_key,
@@ -99,12 +114,16 @@ class BaselineStore:
                     json.dumps(profile.metadata_fingerprints, ensure_ascii=False),
                     profile.dynamic_threshold,
                     ts,
+                    profile.avg_logprob,
+                    profile.logprob_entropy_mean,
+                    profile.logprob_std,
                 ),
             )
             conn.commit()
 
     @staticmethod
     def _row_to_profile(row: sqlite3.Row) -> BaselineProfile:
+        keys = row.keys()
         return BaselineProfile(
             model_key=str(row["model_key"]),
             sample_count=int(row["sample_count"]),
@@ -114,6 +133,11 @@ class BaselineStore:
             ttft_std_ms=row["ttft_std_ms"],
             itt_mean_ms=row["itt_mean_ms"],
             itt_std_ms=row["itt_std_ms"],
+            avg_logprob=row["avg_logprob"] if "avg_logprob" in keys else None,
+            logprob_entropy_mean=row["logprob_entropy_mean"]
+            if "logprob_entropy_mean" in keys
+            else None,
+            logprob_std=row["logprob_std"] if "logprob_std" in keys else None,
             metadata_fingerprints=json.loads(row["metadata_fingerprints"] or "[]"),
             dynamic_threshold=float(row["dynamic_threshold"]),
         )
