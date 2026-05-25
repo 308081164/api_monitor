@@ -4,7 +4,18 @@ API 中转站被动式模型真实性持续监控系统。
 
 基于**方案 A：透明代理**（主）与**方案 B：浏览器扩展**（Web 场景），记录 API 响应并在闲时离线分析，检测模型是否被替换或掺水。
 
-## 快速开始
+## Windows 一键安装（推荐普通用户）
+
+在 [Releases](https://github.com/308081164/api_monitor/releases) 下载 **`{版本号}_windows-set-up.exe`**（例如 `0.4.0_windows-set-up.exe`）：
+
+1. 运行安装程序，可**自选安装目录**
+2. 勾选是否**创建桌面快捷方式**、是否**固定到开始菜单**
+3. 从开始菜单或桌面打开 **API Monitor** → 自动启动服务并打开仪表板
+4. 关闭窗口即**自动停止后台服务**；卸载时也会**自动清理进程**
+
+数据保存在 `%APPDATA%\API Monitor\`。配置中转站请设置环境变量 `SENTINEL_UPSTREAM_URL`。
+
+## 快速开始（开发者 / Python）
 
 ```bash
 pip install -e ".[analyze,dev]"
