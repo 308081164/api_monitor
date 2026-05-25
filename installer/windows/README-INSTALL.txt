@@ -23,5 +23,6 @@ API Monitor — Windows 安装版快速上手
    - 系统「应用和功能」中卸载，会自动清理相关进程
 
 数据目录：%APPDATA%\API Monitor\
+运行日志：%APPDATA%\API Monitor\api-monitor.log
 
 项目主页：https://github.com/308081164/api_monitor
