@@ -13,8 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-release:
+  build-python:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,36 +40,93 @@ jobs:
         id: meta
         run: |
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          SHORT_SHA="${GITHUB_SHA::7}"
           TAG="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            docs-bundle.zip
+
+  build-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          & "$env:GITHUB_WORKSPACE/installer/windows/build-windows.ps1" -Version $version
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installer/*_windows-set-up.exe
+
+  create-release:
+    needs: [build-python, build-windows-installer]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name '*.whl' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*_windows-set-up.exe' \) -exec cp -t release-files {} +
+          ls -la release-files/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: v${{ steps.meta.outputs.version }} (build ${{ github.run_number }})
+          tag_name: ${{ needs.build-python.outputs.tag }}
+          name: v${{ needs.build-python.outputs.version }} (build ${{ github.run_number }})
           body: |
-            ## API Monitor v${{ steps.meta.outputs.version }}
+            ## API Monitor v${{ needs.build-python.outputs.version }}
 
-            - **Commit**: `${{ github.sha }}`
-            - **Branch**: `${{ github.ref_name }}`
-            - **Workflow run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ### Windows 一键安装（推荐）
 
-            ### 下载说明
+            下载 **`${{ needs.build-python.outputs.version }}_windows-set-up.exe`**：
+            - 安装时可**自选安装目录**
+            - 可选 **创建桌面快捷方式**
+            - 可选 **固定到开始菜单**
+            - 关闭程序窗口后**自动停止服务并释放后台进程**
+            - 卸载时**自动清理**残留进程
+
+            安装完成后，从开始菜单或桌面打开 **API Monitor**，将自动打开仪表板：http://127.0.0.1:8080/dashboard
+
+            请将 LLM 客户端 API 地址设为：`http://127.0.0.1:8080/v1`，并配置环境变量 `SENTINEL_UPSTREAM_URL` 为您的中转站地址。
+
+            ### 其他下载
 
             | 文件 | 说明 |
             |------|------|
-            | `api_monitor-*-py3-none-any.whl` | Python wheel，可用 `pip install` 安装 |
-            | `api_monitor-*.tar.gz` | 源码分发包 |
-            | `docs-bundle.zip` | 项目文档压缩包 |
+            | `{version}_windows-set-up.exe` | Windows 安装包 |
+            | `api_monitor-*.whl` | Python wheel（开发者） |
+            | `api_monitor-*.tar.gz` | 源码包 |
+            | `docs-bundle.zip` | 文档 |
 
-            > 本项目处于早期阶段，Release 产物主要用于 CI 验证与后续分发预留。
-          files: |
-            dist/*
-            docs-bundle.zip
+            > Windows 安装包体积较大（含离线分析模型依赖），首次构建可能需要数分钟。
+          files: release-files/*
           draft: false
           prerelease: true
           generate_release_notes: true
