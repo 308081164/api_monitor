@@ -1,0 +1,17 @@
+[Unit]
+Description=API Monitor SentinelProxy (Plan A transparent proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sentinel
+Group=sentinel
+WorkingDirectory=/opt/api-monitor
+EnvironmentFile=-/etc/api-monitor/env
+ExecStart=/usr/local/bin/api-monitor serve --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

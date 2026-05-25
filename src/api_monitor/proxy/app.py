@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api_monitor.config import Settings
+from api_monitor.dashboard.routes import register_dashboard_routes
 from api_monitor.proxy.extract import (
     extract_metadata,
     extract_response_text,
@@ -35,8 +36,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="API Monitor SentinelProxy",
         description="Plan A transparent proxy — record only, analyze offline",
-        version="0.1.0",
+        version="0.3.0",
     )
+
+    if settings.enable_dashboard:
+        register_dashboard_routes(app, settings)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -44,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": "ok",
             "records": logger.count(),
             "upstream_configured": bool(settings.upstream_base_url),
+            "dashboard": settings.enable_dashboard,
         }
 
     @app.api_route(
@@ -91,7 +96,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             upstream_response = await client.send(upstream_request, stream=True)
 
         content_type = upstream_response.headers.get("content-type", "")
-        is_stream = "text/event-stream" in content_type or body and b'"stream":true' in body
+        is_stream = "text/event-stream" in content_type or (
+            body and b'"stream":true' in body
+        )
 
         if is_stream:
             chunks: list[bytes] = []
@@ -105,7 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     yield chunk
                 await upstream_response.aclose()
                 total_ms = (time.perf_counter() - start) * 1000
-                merged = merge_streaming_chunks(chunks)
+                merged, itts_ms = merge_streaming_chunks(chunks)
                 if merged:
                     _record_response(
                         logger,
@@ -115,6 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         body=merged,
                         ttft_ms=ttft_ms,
                         total_ms=total_ms,
+                        itts_ms=itts_ms,
                     )
 
             return StreamingResponse(
@@ -127,6 +135,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raw = await upstream_response.aread()
         await upstream_response.aclose()
         total_ms = (time.perf_counter() - start) * 1000
+        if not ttft_ms and raw:
+            ttft_ms = total_ms
         if raw:
             _record_response(
                 logger,
@@ -136,6 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 body=raw,
                 ttft_ms=ttft_ms,
                 total_ms=total_ms,
+                itts_ms=[],
             )
 
         return Response(
@@ -157,6 +168,7 @@ def _record_response(
     body: bytes,
     ttft_ms: float | None,
     total_ms: float,
+    itts_ms: list[float],
 ) -> None:
     text = extract_response_text(body)
     if not text.strip():
@@ -168,5 +180,10 @@ def _record_response(
         model_requested=model_requested,
         response_text=text,
         metadata=extract_metadata(body),
-        timing={"ttft_ms": ttft_ms, "total_ms": total_ms},
+        timing={
+            "ttft_ms": ttft_ms,
+            "total_ms": total_ms,
+            "itts_ms": itts_ms,
+            "token_chunks": len(itts_ms) if itts_ms else None,
+        },
     )

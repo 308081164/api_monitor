@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Monitor 仪表板</title>
+  <style>
+    :root { --bg: #0f1419; --card: #1a2332; --text: #e7ecf3; --muted: #8b9cb3; --accent: #3b82f6; --warn: #f59e0b; --danger: #ef4444; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1.5rem; }
+    h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .card { background: var(--card); border-radius: 8px; padding: 1rem; }
+    .stat { font-size: 2rem; font-weight: 700; color: var(--accent); }
+    .label { color: var(--muted); font-size: 0.85rem; }
+    button { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #2a3544; }
+    th { color: var(--muted); }
+    .risk-high { color: var(--danger); }
+    .risk-medium { color: var(--warn); }
+    #alerts { margin-top: 1rem; }
+    .alert { background: var(--card); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 4px solid var(--warn); }
+    .alert.high { border-left-color: var(--danger); }
+    pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>API Monitor 仪表板</h1>
+  <p class="label">方案 A 透明代理 · 记录-分析分离</p>
+
+  <div class="grid" id="stats">
+    <div class="card"><div class="stat" id="total">-</div><div class="label">总记录数</div></div>
+    <div class="card"><div class="stat" id="recent">-</div><div class="label">近期样本</div></div>
+    <div class="card"><div class="stat" id="baselines">-</div><div class="label">已建立基线</div></div>
+  </div>
+
+  <p style="margin-top:1rem">
+    <button id="analyzeBtn">运行离线分析</button>
+    <button id="refreshBtn" style="background:#374151;margin-left:0.5rem">刷新</button>
+  </p>
+
+  <div id="alerts"></div>
+
+  <h2 style="margin-top:2rem;font-size:1.1rem">最近记录</h2>
+  <table>
+    <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>TTFT(ms)</th><th>ITT数</th><th>预览</th></tr></thead>
+    <tbody id="records"></tbody>
+  </table>
+
+  <script>
+    async function loadStats() {
+      const r = await fetch('/api/dashboard/stats');
+      const d = await r.json();
+      document.getElementById('total').textContent = d.total_records;
+      document.getElementById('recent').textContent = d.recent_count;
+      document.getElementById('baselines').textContent = (d.baselines || []).length;
+    }
+    async function loadRecords() {
+      const r = await fetch('/api/dashboard/records?limit=30');
+      const d = await r.json();
+      const tbody = document.getElementById('records');
+      tbody.innerHTML = (d.records || []).map(rec => `
+        <tr>
+          <td>${rec.id}</td>
+          <td>${rec.timestamp.slice(0,19)}</td>
+          <td>${rec.model_requested || '-'}</td>
+          <td>${rec.ttft_ms != null ? rec.ttft_ms.toFixed(0) : '-'}</td>
+          <td>${rec.itt_count}</td>
+          <td>${escapeHtml(rec.text_preview)}</td>
+        </tr>`).join('');
+    }
+    function escapeHtml(s) {
+      return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    async function runAnalyze() {
+      const btn = document.getElementById('analyzeBtn');
+      btn.disabled = true;
+      btn.textContent = '分析中…';
+      try {
+        const r = await fetch('/api/dashboard/analyze', { method: 'POST' });
+        const d = await r.json();
+        if (d.error) { alert(d.error); return; }
+        const box = document.getElementById('alerts');
+        if (!d.alerts || !d.alerts.length) {
+          box.innerHTML = '<p class="label">未检测到高风险/中风险告警。</p>';
+          return;
+        }
+        box.innerHTML = '<h2>告警 (' + d.alert_count + ')</h2>' + d.alerts.map(a => `
+          <div class="alert ${a.risk_level}">
+            <strong>#${a.record_id}</strong> ${a.model_requested || 'n/a'}
+            · ${a.expected_family || '?'} → <strong>${a.predicted_family}</strong>
+            · 融合分 ${a.fusion_score}
+            <pre>${(a.evidence || []).join('\n')}</pre>
+          </div>`).join('');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '运行离线分析';
+      }
+    }
+    document.getElementById('analyzeBtn').onclick = runAnalyze;
+    document.getElementById('refreshBtn').onclick = () => { loadStats(); loadRecords(); };
+    loadStats(); loadRecords();
+    setInterval(loadStats, 15000);
+  </script>
+</body>
+</html>
