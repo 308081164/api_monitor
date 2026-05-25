@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 import uvicorn
 
+from api_monitor.alerts import dispatch_report_alerts
 from api_monitor.analyzer.report import (
     render_html_report,
     render_json_report,
@@ -18,6 +19,7 @@ from api_monitor.config import Settings
 from api_monitor.proxy.app import create_app
 from api_monitor.storage.baseline import BaselineStore
 from api_monitor.storage.logger import ResponseLogger
+from api_monitor.storage.user_settings import UserSettingsStore, settings_path_for_db
 
 
 @click.group()
@@ -143,12 +145,14 @@ def baseline_refresh(db_path: str | None) -> None:
     type=int,
     help="最小响应文本长度 (默认 SENTINEL_MIN_TEXT_LENGTH)",
 )
+@click.option("--no-notify", is_flag=True, help="不发送系统通知/Webhook")
 def analyze(
     db_path: str | None,
     limit: int | None,
     output_path: str | None,
     report_format: str,
     min_length: int | None,
+    no_notify: bool,
 ) -> None:
     """离线批量分析已记录响应并生成报告。"""
     settings = Settings.from_env()
@@ -183,6 +187,14 @@ def analyze(
         click.echo(f"报告已写入: {out}")
     else:
         click.echo(content)
+
+    if not no_notify and report.alerts:
+        prefs = UserSettingsStore(settings_path_for_db(path)).load()
+        notify = dispatch_report_alerts(report, prefs)
+        click.echo(
+            f"告警通知: 系统 {notify.system_sent} 条, Webhook {notify.webhook_sent} 条",
+            err=True,
+        )
 
     if report.alerts:
         high = sum(1 for a in report.alerts if a.risk_level == "high")
