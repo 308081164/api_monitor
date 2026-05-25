@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from api_monitor.analyzer.baseline_builder import build_baselines, _model_key
+from api_monitor.analyzer.embedding_model import model_name_for_mode
+from api_monitor.analyzer.reference import reference_comparison_evidence
 from api_monitor.analyzer.baseline_updater import update_baseline_from_record
 from api_monitor.analyzer.drift import (
     metadata_changed,
@@ -41,6 +43,9 @@ class OfflineAnalyzer:
         baseline_ema_alpha: float = 0.08,
         baseline_auto_update: bool = True,
         alert_smoothing_window: int = 3,
+        analysis_mode: str = "lite",
+        relay_upstream_url: str = "",
+        reference_upstream_url: str = "",
         db_path: str | None = None,
     ):
         self.min_text_length = min_text_length
@@ -51,19 +56,26 @@ class OfflineAnalyzer:
         self.baseline_ema_alpha = baseline_ema_alpha
         self.baseline_auto_update = baseline_auto_update
         self.alert_smoothing_window = alert_smoothing_window
+        self.analysis_mode = analysis_mode
+        self.relay_upstream_url = relay_upstream_url
+        self.reference_upstream_url = reference_upstream_url
         self.db_path = db_path
         self._model: SentenceTransformer | None = None
         self._centroids: dict[str, np.ndarray] | None = None
+        self._loaded_model_name: str | None = None
 
     def _load_model(self) -> SentenceTransformer:
-        if self._model is None:
+        target = model_name_for_mode(self.analysis_mode)
+        if self._model is None or self._loaded_model_name != target:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as exc:
                 raise RuntimeError(
                     "分析功能需要安装可选依赖: pip install 'api-monitor[analyze]'"
                 ) from exc
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
+            self._model = SentenceTransformer(target)
+            self._loaded_model_name = target
+            self._centroids = None
         return self._model
 
     def _ensure_centroids(self) -> dict[str, np.ndarray]:
@@ -157,6 +169,11 @@ class OfflineAnalyzer:
         baselines_updated = 0
 
         sorted_eligible = sorted(eligible, key=lambda r: (r.timestamp, r.id))
+        reference_records = [
+            r
+            for r in sorted_eligible
+            if r.metadata.get("upstream_kind") == "reference"
+        ]
 
         for record in sorted_eligible:
             score = self.classify_text(record.response_text)
@@ -214,18 +231,32 @@ class OfflineAnalyzer:
                 ):
                     meta_evidence.append("system_fingerprint 字段缺失")
 
-            evidence = collect_lexicon_evidence(
-                record.response_text,
-                expected=expected,
-                predicted=score.family,
-            ) + meta_evidence
+            evidence = (
+                collect_lexicon_evidence(
+                    record.response_text,
+                    expected=expected,
+                    predicted=score.family,
+                )
+                + meta_evidence
+                + reference_comparison_evidence(
+                    record,
+                    reference_records=reference_records,
+                    relay_url=self.relay_upstream_url,
+                )
+            )
+            if self.reference_upstream_url and not reference_records:
+                evidence.append(
+                    "对照验证: 已配置官方参考上游但尚无 reference 通道样本，"
+                    "请将部分请求指向官方 API 以建立对照"
+                )
 
+            ref_anomaly = any(e.startswith("对照验证:") for e in evidence)
             raw_risk, fusion_score = fusion_risk_level(
                 family_mismatch=mismatch,
                 family_margin=family_margin,
                 text_drift=drift,
                 dynamic_threshold=dyn_threshold,
-                metadata_anomaly=metadata_anomaly,
+                metadata_anomaly=metadata_anomaly or ref_anomaly,
                 timing_pvalue=timing_p,
                 timing_pvalue_threshold=self.timing_pvalue_threshold,
                 has_logprobs_drift=has_logprobs_drift,

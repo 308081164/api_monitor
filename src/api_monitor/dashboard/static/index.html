@@ -5,51 +5,136 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>API Monitor 仪表板</title>
   <style>
-    :root { --bg: #0f1419; --card: #1a2332; --text: #e7ecf3; --muted: #8b9cb3; --accent: #3b82f6; --warn: #f59e0b; --danger: #ef4444; }
+    :root { --bg: #0f1419; --card: #1a2332; --text: #e7ecf3; --muted: #8b9cb3; --accent: #3b82f6; --warn: #f59e0b; --danger: #ef4444; --ok: #22c55e; }
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1.5rem; }
-    h1 { font-size: 1.5rem; margin: 0 0 1rem; }
-    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 1.5rem; max-width: 960px; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+    h2 { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
     .card { background: var(--card); border-radius: 8px; padding: 1rem; }
     .stat { font-size: 2rem; font-weight: 700; color: var(--accent); }
     .label { color: var(--muted); font-size: 0.85rem; }
-    button { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+    input, select { width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid #2a3544; background: #0f1419; color: var(--text); margin-top: 0.25rem; }
+    label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+    button { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; margin-right: 0.5rem; margin-top: 0.5rem; }
+    button.secondary { background: #374151; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
     th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #2a3544; }
     th { color: var(--muted); }
-    .risk-high { color: var(--danger); }
-    .risk-medium { color: var(--warn); }
-    #alerts { margin-top: 1rem; }
+    #onboarding { border: 1px solid var(--accent); }
+    #onboarding.done { border-color: var(--ok); }
     .alert { background: var(--card); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 4px solid var(--warn); }
     .alert.high { border-left-color: var(--danger); }
+    .notify-ok { color: var(--ok); font-size: 0.9rem; margin-top: 0.5rem; }
     pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); }
+    .checkbox-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+    .checkbox-row input { width: auto; margin: 0; }
   </style>
 </head>
 <body>
   <h1>API Monitor 仪表板</h1>
-  <p class="label">方案 A 透明代理 · 记录-分析分离</p>
+  <p class="label">透明代理 · 离线分析 · 系统通知告警</p>
 
-  <div class="grid" id="stats">
+  <div id="onboarding" class="card" style="margin-top:1rem">
+    <h2 style="margin-top:0">首次使用引导</h2>
+    <p class="label" id="onboardHint">请完成以下配置以开始监控中转站 API。</p>
+    <label>中转站 API 地址 (SENTINEL_UPSTREAM_URL)
+      <input id="upstreamUrl" placeholder="https://你的中转站.example.com" />
+    </label>
+    <label>官方参考 API（可选，用于对照验证）
+      <input id="referenceUrl" placeholder="https://api.openai.com" />
+    </label>
+    <label>分析精度
+      <select id="analysisMode">
+        <option value="lite">标准 (MiniLM，速度快)</option>
+        <option value="precise">高精度 (MPNet，更准确)</option>
+      </select>
+    </label>
+    <div class="checkbox-row">
+      <input type="checkbox" id="alertSystem" checked />
+      <span>检测到告警时发送<strong>系统桌面通知</strong></span>
+    </div>
+    <label>告警最低级别（系统通知 / Webhook）
+      <select id="alertMinRisk">
+        <option value="high">仅高风险</option>
+        <option value="medium">中风险及以上</option>
+      </select>
+    </label>
+    <div class="checkbox-row">
+      <input type="checkbox" id="alertWebhook" />
+      <span>同时发送 Webhook</span>
+    </div>
+    <label>Webhook URL
+      <input id="webhookUrl" placeholder="https://hooks.example.com/..." />
+    </label>
+    <p class="label">客户端请设置：<code id="proxyUrl">http://127.0.0.1:8080/v1</code></p>
+    <button id="saveSettingsBtn">保存设置</button>
+    <button class="secondary" id="completeOnboardBtn">完成引导</button>
+    <p id="settingsMsg" class="notify-ok" style="display:none"></p>
+  </div>
+
+  <div class="grid" id="stats" style="margin-top:1rem">
     <div class="card"><div class="stat" id="total">-</div><div class="label">总记录数</div></div>
     <div class="card"><div class="stat" id="recent">-</div><div class="label">近期样本</div></div>
     <div class="card"><div class="stat" id="baselines">-</div><div class="label">已建立基线</div></div>
   </div>
 
-  <p style="margin-top:1rem">
+  <p>
     <button id="analyzeBtn">运行离线分析</button>
-    <button id="refreshBtn" style="background:#374151;margin-left:0.5rem">刷新</button>
+    <button class="secondary" id="refreshBtn">刷新</button>
   </p>
-
+  <p id="notifyMsg" class="label"></p>
   <div id="alerts"></div>
 
-  <h2 style="margin-top:2rem;font-size:1.1rem">最近记录</h2>
+  <h2>最近记录</h2>
   <table>
-    <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>TTFT(ms)</th><th>ITT数</th><th>预览</th></tr></thead>
+    <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>通道</th><th>TTFT</th><th>预览</th></tr></thead>
     <tbody id="records"></tbody>
   </table>
 
   <script>
+    async function loadOnboarding() {
+      const r = await fetch('/api/dashboard/onboarding');
+      const d = await r.json();
+      document.getElementById('upstreamUrl').value = d.upstream_configured ? '' : '';
+      document.getElementById('proxyUrl').textContent = d.proxy_url;
+      document.getElementById('analysisMode').value = d.analysis_mode || 'lite';
+      document.getElementById('alertSystem').checked = d.alert_system_notify !== false;
+      document.getElementById('alertMinRisk').value = d.alert_min_risk || 'high';
+      document.getElementById('alertWebhook').checked = !!d.alert_webhook;
+      document.getElementById('webhookUrl').value = d.webhook_url || '';
+      const ob = document.getElementById('onboarding');
+      if (d.onboarding_completed) {
+        ob.classList.add('done');
+        document.getElementById('onboardHint').textContent =
+          '引导已完成。累计 ' + d.total_records + ' 条记录' +
+          (d.baseline_ready ? '，可进行分析。' : '，尚需 ' + (d.baseline_min_samples - d.total_records) + ' 条样本建立基线。');
+      }
+    }
+    async function saveSettings(complete) {
+      const body = {
+        upstream_url: document.getElementById('upstreamUrl').value.trim(),
+        reference_upstream_url: document.getElementById('referenceUrl').value.trim(),
+        analysis_mode: document.getElementById('analysisMode').value,
+        alert_system_notify: document.getElementById('alertSystem').checked,
+        alert_min_risk: document.getElementById('alertMinRisk').value,
+        alert_webhook: document.getElementById('alertWebhook').checked,
+        webhook_url: document.getElementById('webhookUrl').value.trim(),
+      };
+      if (complete) body.onboarding_completed = true;
+      const r = await fetch('/api/dashboard/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      const msg = document.getElementById('settingsMsg');
+      msg.style.display = 'block';
+      msg.textContent = complete ? '设置已保存，引导完成。请重启 api-monitor serve 使上游地址生效。' : '设置已保存。';
+      if (complete) loadOnboarding();
+      return d;
+    }
     async function loadStats() {
       const r = await fetch('/api/dashboard/stats');
       const d = await r.json();
@@ -60,14 +145,13 @@
     async function loadRecords() {
       const r = await fetch('/api/dashboard/records?limit=30');
       const d = await r.json();
-      const tbody = document.getElementById('records');
-      tbody.innerHTML = (d.records || []).map(rec => `
+      document.getElementById('records').innerHTML = (d.records || []).map(rec => `
         <tr>
           <td>${rec.id}</td>
           <td>${rec.timestamp.slice(0,19)}</td>
           <td>${rec.model_requested || '-'}</td>
+          <td>${rec.upstream_kind || '-'}</td>
           <td>${rec.ttft_ms != null ? rec.ttft_ms.toFixed(0) : '-'}</td>
-          <td>${rec.itt_count}</td>
           <td>${escapeHtml(rec.text_preview)}</td>
         </tr>`).join('');
     }
@@ -78,10 +162,17 @@
       const btn = document.getElementById('analyzeBtn');
       btn.disabled = true;
       btn.textContent = '分析中…';
+      document.getElementById('notifyMsg').textContent = '';
       try {
-        const r = await fetch('/api/dashboard/analyze', { method: 'POST' });
+        const r = await fetch('/api/dashboard/analyze?notify=true', { method: 'POST' });
         const d = await r.json();
         if (d.error) { alert(d.error); return; }
+        if (d.notifications) {
+          const n = d.notifications;
+          document.getElementById('notifyMsg').textContent =
+            `系统通知已发送 ${n.system_sent} 条，Webhook ${n.webhook_sent} 条` +
+            (n.errors && n.errors.length ? '；部分失败: ' + n.errors.join('; ') : '');
+        }
         const box = document.getElementById('alerts');
         if (!d.alerts || !d.alerts.length) {
           box.innerHTML = '<p class="label">未检测到高风险/中风险告警。</p>';
@@ -99,9 +190,11 @@
         btn.textContent = '运行离线分析';
       }
     }
+    document.getElementById('saveSettingsBtn').onclick = () => saveSettings(false);
+    document.getElementById('completeOnboardBtn').onclick = () => saveSettings(true);
     document.getElementById('analyzeBtn').onclick = runAnalyze;
-    document.getElementById('refreshBtn').onclick = () => { loadStats(); loadRecords(); };
-    loadStats(); loadRecords();
+    document.getElementById('refreshBtn').onclick = () => { loadStats(); loadRecords(); loadOnboarding(); };
+    loadOnboarding(); loadStats(); loadRecords();
     setInterval(loadStats, 15000);
   </script>
 </body>

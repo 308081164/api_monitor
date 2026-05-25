@@ -34,16 +34,18 @@ api-monitor analyze --format json -o report.json
 api-monitor baseline-refresh
 ```
 
-## Phase 3 能力
+## Phase 3+ 能力
 
 | 能力 | 说明 |
 |------|------|
-| **基线 EMA 更新** | 低风险样本自动滑动更新基线 |
-| **告警平滑** | 抑制孤立误报（`SENTINEL_ALERT_SMOOTHING_WINDOW`） |
-| **Logprobs** | 可选采集与分布漂移检测 |
-| **浏览器扩展** | `extension/` 目录，方案 B |
-| **JSON 导出** | `--format json` |
-| **运维手册** | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+| **系统桌面通知** | 分析发现告警时推送 OS 通知（可选 `plyer`） |
+| **Webhook 告警** | 仪表板或 `user-settings.json` 配置 |
+| **首次使用引导** | 仪表板内配置上游、对照 API、分析模式 |
+| **高精度分析** | `SENTINEL_ANALYSIS_MODE=precise`（MPNet） |
+| **对照验证** | `SENTINEL_REFERENCE_UPSTREAM_URL` 对比官方 API 样本 |
+| **基线 EMA / 告警平滑 / Logprobs** | 见 [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+
+安装增强通知：`pip install 'api-monitor[alerts]'`（Linux 需 `libnotify`）
 
 ## 方案 B：浏览器扩展
 

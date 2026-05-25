@@ -81,6 +81,15 @@ sqlite3 responses.db ".backup backup-$(date +%F).db"
 | `SENTINEL_ALERT_SMOOTHING_WINDOW` | 3 | 告警历史平滑窗口 |
 | `SENTINEL_LOGPROBS_PVALUE` | 0.01 | Logprobs 漂移阈值 |
 | `SENTINEL_ENABLE_CORS` | true | 浏览器扩展跨域 |
+| `SENTINEL_ANALYSIS_MODE` | lite | `precise` 使用 MPNet 提高精度 |
+| `SENTINEL_REFERENCE_UPSTREAM_URL` | — | 官方 API 对照样本来源 |
+
+## 6.1 告警通知
+
+- **系统通知**：`user-settings.json` 中 `alert_system_notify: true`（仪表板可配置）
+- **Webhook**：设置 `alert_webhook` 与 `webhook_url`
+- **CLI**：`api-monitor analyze` 默认发送通知，加 `--no-notify` 可关闭
+- **Linux**：安装 `libnotify-bin`；可选 `pip install 'api-monitor[alerts]'` 启用 plyer
 
 ## 7. 故障排查
 

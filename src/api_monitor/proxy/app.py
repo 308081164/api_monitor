@@ -19,7 +19,9 @@ from api_monitor.proxy.extract import (
     merge_streaming_chunks,
     parse_request_model,
 )
+from api_monitor.analyzer.reference import resolve_upstream_kind
 from api_monitor.storage.logger import ResponseLogger
+from api_monitor.storage.user_settings import UserSettingsStore, settings_path_for_db
 
 
 def _resolve_upstream(settings: Settings, request: Request) -> str | None:
@@ -33,6 +35,9 @@ def _resolve_upstream(settings: Settings, request: Request) -> str | None:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
+    user_store = UserSettingsStore(settings_path_for_db(settings.db_path))
+    user_prefs = user_store.load()
+    settings = settings.merge_user_settings(user_prefs)
     logger = ResponseLogger(settings.db_path)
     app = FastAPI(
         title="API Monitor SentinelProxy",
@@ -134,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         ttft_ms=ttft_ms,
                         total_ms=total_ms,
                         itts_ms=itts_ms,
+                        settings=settings,
                     )
 
             return StreamingResponse(
@@ -158,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ttft_ms=ttft_ms,
                 total_ms=total_ms,
                 itts_ms=[],
+                settings=settings,
             )
 
         return Response(
@@ -180,17 +187,24 @@ def _record_response(
     ttft_ms: float | None,
     total_ms: float,
     itts_ms: list[float],
+    settings: Settings,
 ) -> None:
     text = extract_response_text(body)
     if not text.strip():
         return
+    meta = extract_metadata(body)
+    meta["upstream_kind"] = resolve_upstream_kind(
+        upstream_url,
+        relay_url=settings.upstream_base_url,
+        reference_url=settings.reference_upstream_url,
+    )
     logger.log(
         method=request.method,
         path=str(request.url.path),
         upstream_url=upstream_url,
         model_requested=model_requested,
         response_text=text,
-        metadata=extract_metadata(body),
+        metadata=meta,
         timing={
             "ttft_ms": ttft_ms,
             "total_ms": total_ms,

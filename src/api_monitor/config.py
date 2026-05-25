@@ -37,6 +37,8 @@ class Settings:
     alert_smoothing_window: int = 3
     logprobs_pvalue_threshold: float = 0.01
     enable_cors: bool = True
+    analysis_mode: str = "lite"
+    reference_upstream_url: str = ""
 
     def with_overrides(self, **kwargs: object) -> Settings:
         data = {f.name: getattr(self, f.name) for f in fields(self)}
@@ -55,6 +57,8 @@ class Settings:
         ema_raw = _env("SENTINEL_BASELINE_EMA_ALPHA", "0.08")
         smooth_raw = _env("SENTINEL_ALERT_SMOOTHING_WINDOW", "3")
         logprob_p_raw = _env("SENTINEL_LOGPROBS_PVALUE", "0.01")
+        mode_raw = _env("SENTINEL_ANALYSIS_MODE", "lite")
+        ref_upstream = _env("SENTINEL_REFERENCE_UPSTREAM_URL", "") or ""
         return cls(
             host=_env("SENTINEL_HOST", "127.0.0.1") or "127.0.0.1",
             port=int(port_raw) if port_raw else 8080,
@@ -70,7 +74,24 @@ class Settings:
             alert_smoothing_window=int(smooth_raw) if smooth_raw else 3,
             logprobs_pvalue_threshold=float(logprob_p_raw) if logprob_p_raw else 0.01,
             enable_cors=_bool_env("SENTINEL_ENABLE_CORS", True),
+            analysis_mode=(mode_raw or "lite").lower(),
+            reference_upstream_url=ref_upstream.rstrip("/"),
         )
+
+    def merge_user_settings(self, user: "UserSettings") -> Settings:
+        """Overlay persisted dashboard settings onto environment defaults."""
+        from api_monitor.storage.user_settings import UserSettings
+
+        if not isinstance(user, UserSettings):
+            return self
+        kwargs: dict = {}
+        if user.upstream_url:
+            kwargs["upstream_base_url"] = user.upstream_url.rstrip("/")
+        if user.reference_upstream_url:
+            kwargs["reference_upstream_url"] = user.reference_upstream_url.rstrip("/")
+        if user.analysis_mode:
+            kwargs["analysis_mode"] = user.analysis_mode
+        return self.with_overrides(**kwargs) if kwargs else self
 
 
 def default_data_dir() -> Path:
